@@ -29,41 +29,18 @@ position_to_angle = {
 
 # Classe de ações que movimentam os servos
 class Action:
-    def look_at_top_left(self):
-        set_servo_angle(servo_x, 45)
-        set_servo_angle(servo_y, 45)
+    def __init__(self):
+        self.actions = {
+            "look_at_top_left": (135, 135), "look_at_top_center": (90, 135), "look_at_top_right": (45, 135),
+            "look_at_middle_left": (135, 90), "look_at_middle_center": (90, 90), "look_at_middle_right": (45, 90),
+            "look_at_bottom_left": (135, 45), "look_at_bottom_center": (90, 45), "look_at_bottom_right": (45, 45)
+        }
     
-    def look_at_top_center(self):
-        set_servo_angle(servo_x, 90)
-        set_servo_angle(servo_y, 45)
-    
-    def look_at_top_right(self):
-        set_servo_angle(servo_x, 135)
-        set_servo_angle(servo_y, 45)
-    
-    def look_at_middle_left(self):
-        set_servo_angle(servo_x, 45)
-        set_servo_angle(servo_y, 90)
-    
-    def look_at_middle_center(self):
-        set_servo_angle(servo_x, 90)
-        set_servo_angle(servo_y, 90)
-    
-    def look_at_middle_right(self):
-        set_servo_angle(servo_x, 135)
-        set_servo_angle(servo_y, 90)
-    
-    def look_at_bottom_left(self):
-        set_servo_angle(servo_x, 45)
-        set_servo_angle(servo_y, 135)
-    
-    def look_at_bottom_center(self):
-        set_servo_angle(servo_x, 90)
-        set_servo_angle(servo_y, 135)
-    
-    def look_at_bottom_right(self):
-        set_servo_angle(servo_x, 135)
-        set_servo_angle(servo_y, 135)
+    def execute(self, action_name):
+        if action_name in self.actions:
+            angle_x, angle_y = self.actions[action_name]
+            set_servo_angle(servo_x, angle_x)
+            set_servo_angle(servo_y, angle_y)
 
 # Classe de planejamento
 class PlanLibrary:
@@ -105,11 +82,10 @@ class Agent:
             self.intention.extend(plan)
     
     def execute_intention(self):
+        action_instance = Action()
         while self.intention:
             next_action = self.intention.pop()
-            action_instance = Action()
-            action_method = getattr(action_instance, next_action)
-            action_method()
+            action_instance.execute(next_action)
 
 # Inicialização do agente
 agent = Agent()
@@ -127,12 +103,15 @@ agent.set_plan_library([
     ('adjust_vision', {'context': {'position': 'bottom_right', 'profile': 'shy'}, 'plan': ['look_at_bottom_right']}),
 ])
 
-# Execução do agente
-goal = agent.get_desires()
-agent.update_intention(goal)
-agent.execute_intention()
-
-# Limpeza dos servos
-servo_x.stop()
-servo_y.stop()
-GPIO.cleanup()
+# Loop contínuo para executar o agente
+try:
+    while True:
+        goal = agent.get_desires()
+        agent.update_intention(goal)
+        agent.execute_intention()
+        time.sleep(1)  # Pequena pausa para evitar loop muito rápido
+except KeyboardInterrupt:
+    print("Encerrando execução...")
+    servo_x.stop()
+    servo_y.stop()
+    GPIO.cleanup()
