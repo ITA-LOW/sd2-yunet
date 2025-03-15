@@ -4,12 +4,12 @@ import time
 
 # Configuração dos servos
 GPIO.setmode(GPIO.BCM)
-SERVO_X_PIN = 17  # Defina o pino GPIO para o servo de movimento horizontal
-SERVO_Y_PIN = 27  # Defina o pino GPIO para o servo de movimento vertical
+SERVO_X_PIN = 17  # Pino para movimento horizontal
+SERVO_Y_PIN = 27  # Pino para movimento vertical
 GPIO.setup(SERVO_X_PIN, GPIO.OUT)
 GPIO.setup(SERVO_Y_PIN, GPIO.OUT)
 
-# Configuração do PWM para os servos
+# PWM para os servos
 servo_x = GPIO.PWM(SERVO_X_PIN, 50)  # 50 Hz
 servo_y = GPIO.PWM(SERVO_Y_PIN, 50)
 servo_x.start(7.5)  # Posição neutra
@@ -20,86 +20,119 @@ def set_servo_angle(servo, angle):
     servo.ChangeDutyCycle(duty)
     time.sleep(0.2)
 
-model = 'face_detection_yunet_2023mar.onnx'
-input_size = (640, 640)
-
-face_detector = cv.FaceDetectorYN.create(
-    model, "", input_size, score_threshold=0.8, nms_threshold=0.3,
-    top_k=5000, backend_id=cv.dnn.DNN_BACKEND_OPENCV, target_id=cv.dnn.DNN_TARGET_CPU
-)
-
-ip = 'http://192.168.0.126'
-stream_url = f"{ip}:81/stream"
-
-video_path = "sora.mp4"
-cap = cv.VideoCapture(stream_url)
-
-def get_position(row, col):
-    switch = {
-        (1, 1): "position(top_left)",
-        (1, 2): "position(top_center)",
-        (1, 3): "position(top_right)",
-        (2, 1): "position(middle_left)",
-        (2, 2): "position(middle_center)",
-        (2, 3): "position(middle_right)",
-        (3, 1): "position(bottom_left)",
-        (3, 2): "position(bottom_center)",
-        (3, 3): "position(bottom_right)"
-    }
-    return switch.get((row, col), "position(unknown)")
-
+# Mapeamento de posições para ângulos
 position_to_angle = {
-    "position(top_left)": (45, 45),
-    "position(top_center)": (90, 45),
-    "position(top_right)": (135, 45),
-    "position(middle_left)": (45, 90),
-    "position(middle_center)": (90, 90),
-    "position(middle_right)": (135, 90),
-    "position(bottom_left)": (45, 135),
-    "position(bottom_center)": (90, 135),
-    "position(bottom_right)": (135, 135),
+    "top_left": (45, 45), "top_center": (90, 45), "top_right": (135, 45),
+    "middle_left": (45, 90), "middle_center": (90, 90), "middle_right": (135, 90),
+    "bottom_left": (45, 135), "bottom_center": (90, 135), "bottom_right": (135, 135)
 }
 
-if not cap.isOpened():
-    print(f"Erro ao abrir o vídeo {video_path}")
-else:
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+# Classe de ações que movimentam os servos
+class Action:
+    def look_at_top_left(self):
+        set_servo_angle(servo_x, 45)
+        set_servo_angle(servo_y, 45)
+    
+    def look_at_top_center(self):
+        set_servo_angle(servo_x, 90)
+        set_servo_angle(servo_y, 45)
+    
+    def look_at_top_right(self):
+        set_servo_angle(servo_x, 135)
+        set_servo_angle(servo_y, 45)
+    
+    def look_at_middle_left(self):
+        set_servo_angle(servo_x, 45)
+        set_servo_angle(servo_y, 90)
+    
+    def look_at_middle_center(self):
+        set_servo_angle(servo_x, 90)
+        set_servo_angle(servo_y, 90)
+    
+    def look_at_middle_right(self):
+        set_servo_angle(servo_x, 135)
+        set_servo_angle(servo_y, 90)
+    
+    def look_at_bottom_left(self):
+        set_servo_angle(servo_x, 45)
+        set_servo_angle(servo_y, 135)
+    
+    def look_at_bottom_center(self):
+        set_servo_angle(servo_x, 90)
+        set_servo_angle(servo_y, 135)
+    
+    def look_at_bottom_right(self):
+        set_servo_angle(servo_x, 135)
+        set_servo_angle(servo_y, 135)
 
-        height, width = frame.shape[:2]
-        resized_frame = cv.resize(frame, input_size)
-        faces = face_detector.detect(resized_frame)
+# Classe de planejamento
+class PlanLibrary:
+    def __init__(self):
+        self.plans = {}
+    
+    def set_plan_library(self, planlb):
+        self.plans = planlb
+    
+    def get_plan(self, goal, bb):
+        for g, plan_entry in self.plans:
+            if g == goal and set(plan_entry['context'].items()).issubset(bb.items()):
+                return plan_entry['plan']
+        return None
 
-        if faces[1] is not None:
-            cell_width = width / 3
-            cell_height = height / 3
+# Classe do agente
+class Agent:
+    def __init__(self):
+        self.beliefs = {}
+        self.desires = []
+        self.intention = []
+        self.plan_library = PlanLibrary()
+    
+    def add_beliefs(self, beliefs):
+        self.beliefs.update(beliefs)
+    
+    def add_desires(self, desire):
+        self.desires.append(desire)
+    
+    def get_desires(self):
+        return self.desires.pop()
+    
+    def set_plan_library(self, pl):
+        self.plan_library.set_plan_library(pl)
+    
+    def update_intention(self, goal):
+        plan = self.plan_library.get_plan(goal, self.beliefs)
+        if plan:
+            self.intention.extend(plan)
+    
+    def execute_intention(self):
+        while self.intention:
+            next_action = self.intention.pop()
+            action_instance = Action()
+            action_method = getattr(action_instance, next_action)
+            action_method()
 
-            for face in faces[1]:
-                face = face.astype(int)
-                x, y, w, h = face[:4]
-                x = int(x * width / input_size[0])
-                y = int(y * height / input_size[1])
-                w = int(w * width / input_size[0])
-                h = int(h * height / input_size[1])
+# Inicialização do agente
+agent = Agent()
+agent.add_beliefs({'profile': "shy", 'position': 'middle_center'})
+agent.add_desires("adjust_vision")
+agent.set_plan_library([
+    ('adjust_vision', {'context': {'position': 'top_left', 'profile': 'shy'}, 'plan': ['look_at_top_left']}),
+    ('adjust_vision', {'context': {'position': 'top_center', 'profile': 'shy'}, 'plan': ['look_at_top_center']}),
+    ('adjust_vision', {'context': {'position': 'top_right', 'profile': 'shy'}, 'plan': ['look_at_top_right']}),
+    ('adjust_vision', {'context': {'position': 'middle_left', 'profile': 'shy'}, 'plan': ['look_at_middle_left']}),
+    ('adjust_vision', {'context': {'position': 'middle_center', 'profile': 'shy'}, 'plan': ['look_at_middle_center']}),
+    ('adjust_vision', {'context': {'position': 'middle_right', 'profile': 'shy'}, 'plan': ['look_at_middle_right']}),
+    ('adjust_vision', {'context': {'position': 'bottom_left', 'profile': 'shy'}, 'plan': ['look_at_bottom_left']}),
+    ('adjust_vision', {'context': {'position': 'bottom_center', 'profile': 'shy'}, 'plan': ['look_at_bottom_center']}),
+    ('adjust_vision', {'context': {'position': 'bottom_right', 'profile': 'shy'}, 'plan': ['look_at_bottom_right']}),
+])
 
-                face_center_x = x + w / 2
-                face_center_y = y + h / 2
-                col = int(face_center_x // cell_width) + 1
-                row = int(face_center_y // cell_height) + 1
-                col = min(col, 3)
-                row = min(row, 3)
+# Execução do agente
+goal = agent.get_desires()
+agent.update_intention(goal)
+agent.execute_intention()
 
-                position = get_position(row, col)
-                print(f"Rosto localizado na célula da matriz: {position}")
-
-                if position in position_to_angle:
-                    angle_x, angle_y = position_to_angle[position]
-                    set_servo_angle(servo_x, angle_x)
-                    set_servo_angle(servo_y, angle_y)
-
-    cap.release()
-    servo_x.stop()
-    servo_y.stop()
-    GPIO.cleanup()
+# Limpeza dos servos
+servo_x.stop()
+servo_y.stop()
+GPIO.cleanup()
